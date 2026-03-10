@@ -2,10 +2,12 @@ package com.yarasa.chainsense
 
 import android.R.attr.font
 import android.graphics.drawable.Icon
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -35,6 +37,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButtonDefaults.Icon
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
@@ -49,6 +53,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.VerticalAlignmentLine
+import androidx.compose.ui.text.font.AndroidFont
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -64,9 +70,13 @@ import com.yarasa.chainsense.Screens.HomeScreen
 import com.yarasa.chainsense.Screens.ProfileScreen
 import com.yarasa.chainsense.Screens.StatsScreen
 import com.yarasa.chainsense.ui.theme.ChainSenseTheme
+import com.yarasa.chainsense.ui.theme.CubeFontFamily
+import com.yarasa.chainsense.ui.theme.GreatWarriorFamily
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import org.intellij.lang.annotations.JdkConstants
 import java.nio.file.WatchEvent
+import java.util.jar.Manifest
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,7 +95,43 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.entries.all { it.value }
+        if (allGranted) {
+            // "Aga bütün izinler tamam, bağlanabiliriz!"
+            startBluetoothConnection()
+        } else {
+
+        }
+    }
+
+    private fun checkAndRequestPermissions() {
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Android 12 ve Üzeri (Daha sıkı izinler)
+            arrayOf(
+                android.Manifest.permission.BLUETOOTH_SCAN,
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        } else {
+            // Android 11 ve Altı
+            arrayOf(
+                android.Manifest.permission.BLUETOOTH,
+                android.Manifest.permission.BLUETOOTH_ADMIN,
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        }
+        permissionLauncher.launch(permissions)
+    }
+
+    fun startBluetoothConnection(){
+
+    }
 }
+
 
 @Composable
 fun ChainSenseApp (){
@@ -93,6 +139,22 @@ fun ChainSenseApp (){
     val items = listOf(Screen.Home, Screen.Stats, Screen.Profile)
 
     Scaffold(
+        topBar = {
+            Column() {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(text = "ChainSense",
+                        fontFamily = GreatWarriorFamily,
+                        fontSize = 30.sp)
+                }
+                HorizontalDivider(modifier = Modifier.padding(0.dp,1.dp,0.dp,7.dp))
+            }
+
+
+        },
+
         bottomBar = {
             NavigationBar {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
