@@ -1,5 +1,3 @@
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
 #include <Wire.h>
 #include <SimpleKalmanFilter.h>
 #include <BLEDevice.h>
@@ -16,7 +14,9 @@ BLECharacteristic* pCharacteristic = NULL;
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
 
-Adafruit_MPU6050 mpu;
+// MPU6050 I2C Adresi
+const int MPU_ADDR = 0x68;
+
 SimpleKalmanFilter kalmanX(2, 2, 0.01);
 SimpleKalmanFilter kalmanY(2, 2, 0.01);
 SimpleKalmanFilter kalmanZ(2, 2, 0.01);
@@ -37,22 +37,30 @@ class MyServerCallbacks: public BLEServerCallbacks {
 
 void setup(void) {
   Serial.begin(115200);
-  while (!Serial) delay(10); // Serial hazır olana kadar bekle
 
-  // 1. MPU6050 Başlatma
-  if (!mpu.begin()) {
-    Serial.println("[-] MPU6050 Bulunamadi!");
-    while (1) yield();
+  // 1. I2C Hattını Başlat
+  Wire.begin(SDA, SCL); 
+  delay(100);
+
+  // 2. MPU6050'yi Manuel Uyandır (Kütüphanesiz Bare Metal Metodu)
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B); // PWR_MGMT_1 register'ı
+  Wire.write(0);    // Çipi uyandır (0 yazarak uyku modunu kapatıyoruz)
+  byte error = Wire.endTransmission(true);
+
+  if (error != 0) {
+    Serial.println("[-] MPU6050 Uyanmadi! Adres veya kablo hatasi.");
+    while(1) yield(); // Donanım kopuksa burada kalır
   }
+  Serial.println("[+] MPU6050 Bare Metal Modunda Ayaga Kalkti!");
   
-  // 2. BLE Başlatma (SIRALAMA ÇOK ÖNEMLİ AGA!)
-  BLEDevice::init("ChainSense"); // Önce init et
+  // 3. BLE Başlatma
+  BLEDevice::init("ChainSense"); 
   
-  // ŞİMDİ MAC ADRESİNİ OKUYORUZ:
   String myAddress = BLEDevice::getAddress().toString().c_str();
   Serial.println("******************************************");
   Serial.print("[+] ESP32 BLE MAC ADRESI: ");
-  Serial.println(myAddress); // İşte Android koduna yazacağın adres bu!
+  Serial.println(myAddress); 
   Serial.println("******************************************");
 
   pServer = BLEDevice::createServer();
@@ -81,18 +89,31 @@ void setup(void) {
 }
 
 void loop() {
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
+  // MPU6050'den İvme Verilerini Manuel Oku
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x3B); // İvme verilerinin başladığı adres
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_ADDR, 6, true); // 6 byte (X, Y, Z için ikişer byte) iste
+
+  // Verileri birleştir (Yüksek byte << 8 | Düşük byte)
+  int16_t rawAcX = Wire.read() << 8 | Wire.read();
+  int16_t rawAcY = Wire.read() << 8 | Wire.read();
+  int16_t rawAcZ = Wire.read() << 8 | Wire.read();
+
+  // Hassasiyet ayarı (MPU6050 varsayılan +-2g hassasiyetindedir -> 16384 LSB/g)
+  float ax = rawAcX / 16384.0;
+  float ay = rawAcY / 16384.0;
+  float az = rawAcZ / 16384.0;
 
   // Kalman Filtresi ile gürültüyü temizle
-  float fAx = kalmanX.updateEstimate(a.acceleration.x);
-  float fAy = kalmanY.updateEstimate(a.acceleration.y);
-  float fAz = kalmanZ.updateEstimate(a.acceleration.z - OFFSET_Z);
+  float fAx = kalmanX.updateEstimate(ax);
+  float fAy = kalmanY.updateEstimate(ay);
+  float fAz = kalmanZ.updateEstimate(az - OFFSET_Z);
 
   // Eğim açısını hesapla (Pitch)
   float angleX = atan2(fAy, sqrt(fAx * fAx + fAz * fAz)) * 180.0 / PI;
 
-  // Sadece cihaz bağlıyken ve 150ms'de bir veri gönder
+  // Sadece cihaz bağlıyken veri gönder
   if (deviceConnected && (millis() - lastBleTime > 150)) {
     char txString[8]; 
     dtostrf(angleX, 4, 2, txString); 
