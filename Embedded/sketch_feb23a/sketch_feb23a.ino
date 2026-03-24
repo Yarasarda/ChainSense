@@ -1,142 +1,115 @@
 #include <Wire.h>
-#include <SimpleKalmanFilter.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
 
-// --- BLE AYARLARI ---
+// --- AYARLAR ---
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+const int MPU_ADDR = 0x68;
 
+// --- DEĞİŞKENLER ---
 BLEServer* pServer = NULL;
 BLECharacteristic* pCharacteristic = NULL;
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
 
-// MPU6050 I2C Adresi
-const int MPU_ADDR = 0x68;
-
-SimpleKalmanFilter kalmanX(2, 2, 0.01);
-SimpleKalmanFilter kalmanY(2, 2, 0.01);
-SimpleKalmanFilter kalmanZ(2, 2, 0.01);
-
-const float OFFSET_Z = 1.37; 
+float angleX = 0; 
+float lastSentAngle = 0;
+unsigned long lastTime = 0;
 unsigned long lastBleTime = 0;
 
+// --- FİLTRE VE EŞİK PARAMETRELERİ ---
+const float alpha = 0.96;      // %96 Gyro, %4 Accel (Dengeli pürüzsüzlük)
+const float threshold = 0.25;  // 0.25 dereceden küçük oynamaları gönderme
+
 class MyServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
-      deviceConnected = true;
-      Serial.println(">> [OK] Telefon Baglandi!");
-    };
-    void onDisconnect(BLEServer* pServer) {
-      deviceConnected = false;
-      Serial.println(">> [UYARI] Telefon Koptu!");
-    }
+    void onConnect(BLEServer* pServer) { deviceConnected = true; Serial.println(">> [OK] Baglandi!"); }
+    void onDisconnect(BLEServer* pServer) { deviceConnected = false; Serial.println(">> [UYARI] Koptu!"); }
 };
 
 void setup(void) {
   Serial.begin(115200);
-
-  // 1. I2C Hattını Başlat
-  Wire.begin(SDA, SCL); 
+  Wire.begin(); 
   delay(100);
 
-  // 2. MPU6050'yi Manuel Uyandır (Kütüphanesiz Bare Metal Metodu)
+  // MPU6050 Manuel Uyandırma
   Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x6B); // PWR_MGMT_1 register'ı
-  Wire.write(0);    // Çipi uyandır (0 yazarak uyku modunu kapatıyoruz)
-  byte error = Wire.endTransmission(true);
+  Wire.write(0x6B); 
+  Wire.write(0);    
+  Wire.endTransmission(true);
 
-  if (error != 0) {
-    Serial.println("[-] MPU6050 Uyanmadi! Adres veya kablo hatasi.");
-    while(1) yield(); // Donanım kopuksa burada kalır
-  }
-  Serial.println("[+] MPU6050 Bare Metal Modunda Ayaga Kalkti!");
-  
-  // 3. BLE Başlatma
-  BLEDevice::init("ChainSense"); 
-  
-  String myAddress = BLEDevice::getAddress().toString().c_str();
-  Serial.println("******************************************");
-  Serial.print("[+] ESP32 BLE MAC ADRESI: ");
-  Serial.println(myAddress); 
-  Serial.println("******************************************");
-
+  // BLE Kurulum
+  BLEDevice::init("ChainSense");
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
-
+  
   BLEService *pService = pServer->createService(SERVICE_UUID);
-
   pCharacteristic = pService->createCharacteristic(
                       CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_READ   |
-                      BLECharacteristic::PROPERTY_WRITE  |
-                      BLECharacteristic::PROPERTY_NOTIFY | 
-                      BLECharacteristic::PROPERTY_INDICATE
+                      BLECharacteristic::PROPERTY_NOTIFY
                     );
-
   pCharacteristic->addDescriptor(new BLE2902());
   pService->start();
-
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(false);
-  pAdvertising->setMinPreferred(0x0); 
   BLEDevice::startAdvertising();
-  
-  Serial.println("[+] Reklam Basladi. Telefonundan Baglanabilirsin.");
+
+  lastTime = micros();
+  Serial.println("[+] Sistem Hazir, Titreşim Filtresi Aktif!");
 }
 
 void loop() {
-  // MPU6050'den İvme Verilerini Manuel Oku
+  // 1. Hassas Zaman Farkı (dt)
+  unsigned long currentTime = micros();
+  float dt = (currentTime - lastTime) / 1000000.0;
+  lastTime = currentTime;
+
+  // 2. Veri Okuma (İvme + Jiroskop = 14 Byte)
   Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x3B); // İvme verilerinin başladığı adres
+  Wire.write(0x3B); 
   Wire.endTransmission(false);
-  Wire.requestFrom(MPU_ADDR, 6, true); // 6 byte (X, Y, Z için ikişer byte) iste
+  Wire.requestFrom(MPU_ADDR, 14, true); 
 
-  // Verileri birleştir (Yüksek byte << 8 | Düşük byte)
-  int16_t rawAcX = Wire.read() << 8 | Wire.read();
-  int16_t rawAcY = Wire.read() << 8 | Wire.read();
-  int16_t rawAcZ = Wire.read() << 8 | Wire.read();
+  int16_t rawAcX = Wire.read()<<8 | Wire.read();
+  int16_t rawAcY = Wire.read()<<8 | Wire.read();
+  int16_t rawAcZ = Wire.read()<<8 | Wire.read();
+  Wire.read(); Wire.read(); // Sıcaklığı atla
+  int16_t rawGyX = Wire.read()<<8 | Wire.read();
 
-  // Hassasiyet ayarı (MPU6050 varsayılan +-2g hassasiyetindedir -> 16384 LSB/g)
-  float ax = rawAcX / 16384.0;
+  // Birim Dönüşümü (2g ve 250deg/s varsayılan ayarlar)
   float ay = rawAcY / 16384.0;
   float az = rawAcZ / 16384.0;
+  float gyroRateX = rawGyX / 131.0; 
 
-  // Kalman Filtresi ile gürültüyü temizle
-  float fAx = kalmanX.updateEstimate(ax);
-  float fAy = kalmanY.updateEstimate(ay);
-  float fAz = kalmanZ.updateEstimate(az - OFFSET_Z);
+  // 3. Matematiksel Filtreleme (Complementary Filter)
+  float accAngleX = atan2(ay, az) * 180.0 / PI;
+  angleX = alpha * (angleX + gyroRateX * dt) + (1.0 - alpha) * accAngleX;
 
-  // Eğim açısını hesapla (Pitch)
-  float angleX = atan2(fAy, sqrt(fAx * fAx + fAz * fAz)) * 180.0 / PI;
-
-  // Sadece cihaz bağlıyken veri gönder
-  if (deviceConnected && (millis() - lastBleTime > 150)) {
-    char txString[8]; 
-    dtostrf(angleX, 4, 2, txString); 
-    
-    pCharacteristic->setValue(txString);
-    pCharacteristic->notify(); 
-    
-    Serial.print("BLE_Gonderilen_Aci: ");
-    Serial.println(txString);
-    lastBleTime = millis();
+  // 4. Titreşim Engelleme ve BLE Gönderimi
+  // Sadece 'threshold' kadar değişim varsa ve 100ms geçtiyse gönder
+  if (abs(angleX - lastSentAngle) >= threshold) {
+      if (deviceConnected && (millis() - lastBleTime > 100)) {
+        char txString[8]; 
+        dtostrf(angleX, 4, 1, txString); // Tek hane küsurat (0.1 hassasiyet)
+        
+        pCharacteristic->setValue(txString);
+        pCharacteristic->notify(); 
+        
+        Serial.print("Stabilize Aci: ");
+        Serial.println(txString);
+        
+        lastSentAngle = angleX; 
+        lastBleTime = millis();
+      }
   }
 
-  // Bağlantı koparsa reklamı tekrar başlat
+  // Bağlantı Koptuğunda Reklamı Geri Aç
   if (!deviceConnected && oldDeviceConnected) {
-      delay(500); 
-      pServer->startAdvertising(); 
-      Serial.println(">> [RE-ADVERTISE] Yeni baglanti bekleniyor...");
-      oldDeviceConnected = deviceConnected;
+    delay(500);
+    pServer->startAdvertising();
+    oldDeviceConnected = deviceConnected;
   }
-  
   if (deviceConnected && !oldDeviceConnected) {
-      oldDeviceConnected = deviceConnected;
+    oldDeviceConnected = deviceConnected;
   }
-
-  delay(10); 
 }
