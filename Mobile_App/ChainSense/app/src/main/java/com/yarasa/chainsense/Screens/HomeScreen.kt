@@ -49,12 +49,19 @@ fun HomeScreen(viewModel: MainViewModel) {
 
 @Composable
 fun PostureVisualizer(currentPitch: Float) {
+    // 1. MUTLAK DEĞER: Ekranda ve hesapta her zaman pozitif çalış
+    val absolutePitch = abs(currentPitch)
+
+    // 2. SENKRONİZE ANİMASYON: 150ms hayat kurtarır, lag yapmaz.
     val animatedPitch by animateFloatAsState(
-        targetValue = currentPitch,
-        animationSpec = tween(durationMillis = 500)
+        targetValue = absolutePitch,
+        animationSpec = tween(durationMillis = 150),
+        label = "pitch_anim"
     )
 
-    val currentAbs = abs(animatedPitch)
+    val currentAbs = animatedPitch.coerceIn(0f, 45f)
+
+    // Senin renk mantığın (Stabil tutuldu)
     val indicatorColor = when {
         currentAbs <= 7.5f -> Color.Green
         currentAbs <= 15.0f -> Color(0xFFFF5722)
@@ -62,14 +69,12 @@ fun PostureVisualizer(currentPitch: Float) {
     }
 
     Box(
-        modifier = Modifier
-            .size(300.dp)
-            .padding(16.dp),
+        modifier = Modifier.size(300.dp).padding(16.dp),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-
-            drawArc( //backside
+            // Gri Arka Plan Yayın
+            drawArc(
                 color = Color.LightGray.copy(alpha = 0.3f),
                 startAngle = 135f,
                 sweepAngle = 270f,
@@ -77,10 +82,9 @@ fun PostureVisualizer(currentPitch: Float) {
                 style = Stroke(width = 50f, cap = StrokeCap.Round)
             )
 
-            val currentAbs = abs(animatedPitch).coerceIn(0f, 45f)
+            // Hareketli Ön Plan Yayın
             val finalSweep = (currentAbs / 45f) * 270f
-
-            drawArc( //frontside
+            drawArc(
                 color = indicatorColor,
                 startAngle = 135f,
                 sweepAngle = finalSweep.coerceAtLeast(0.1f),
@@ -88,9 +92,11 @@ fun PostureVisualizer(currentPitch: Float) {
                 style = Stroke(width = 40f, cap = StrokeCap.Round)
             )
         }
+
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Rakamın değiştiğini görmek için tek hane formatı
             Text(
-                text = "${String.format("%.2f", currentPitch)}°",
+                text = "${String.format("%.1f", absolutePitch)}°",
                 fontSize = 48.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
@@ -99,16 +105,3 @@ fun PostureVisualizer(currentPitch: Float) {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

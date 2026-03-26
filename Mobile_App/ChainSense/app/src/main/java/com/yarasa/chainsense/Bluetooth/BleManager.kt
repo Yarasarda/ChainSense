@@ -59,6 +59,7 @@ class BleManager(
         @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
+                gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                 val service = gatt.getService(SERVICE_UUID)
                 val characteristic = service?.getCharacteristic(CHARACTERISTIC_UUID)
                 if (characteristic != null) {
