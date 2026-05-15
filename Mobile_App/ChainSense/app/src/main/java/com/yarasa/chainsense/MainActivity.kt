@@ -10,14 +10,20 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -26,6 +32,8 @@ import androidx.navigation.compose.rememberNavController
 import com.yarasa.chainsense.Screens.HomeScreen
 import com.yarasa.chainsense.Screens.StatsScreen
 import com.yarasa.chainsense.ui.theme.ChainSenseTheme
+import com.yarasa.chainsense.ui.theme.CubeFontFamily
+import com.yarasa.chainsense.ui.theme.GreatWarriorFamily
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -77,12 +85,26 @@ class MainActivity : ComponentActivity() {
 }
 
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChainSenseApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val navController = rememberNavController()
     val items = listOf(Screen.Home, Screen.Stats, Screen.Profile)
 
     Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        text = "CHAINSENSE",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = GreatWarriorFamily,
+                        fontSize = 22.sp,
+                        letterSpacing = 2.sp
+                    )
+                }
+            )
+        },
         bottomBar = {
             NavigationBar {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()

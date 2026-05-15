@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 import com.yarasa.chainsense.MainViewModel
+import androidx.compose.animation.animateColorAsState
 
 @Composable
 fun HomeScreen(viewModel: MainViewModel) {
@@ -49,10 +50,8 @@ fun HomeScreen(viewModel: MainViewModel) {
 
 @Composable
 fun PostureVisualizer(currentPitch: Float) {
-    // 1. MUTLAK DEĞER: Ekranda ve hesapta her zaman pozitif çalış
     val absolutePitch = abs(currentPitch)
 
-    // 2. SENKRONİZE ANİMASYON: 150ms hayat kurtarır, lag yapmaz.
     val animatedPitch by animateFloatAsState(
         targetValue = absolutePitch,
         animationSpec = tween(durationMillis = 150),
@@ -61,19 +60,24 @@ fun PostureVisualizer(currentPitch: Float) {
 
     val currentAbs = animatedPitch.coerceIn(0f, 45f)
 
-    // Senin renk mantığın (Stabil tutuldu)
-    val indicatorColor = when {
+    val targerColor = when {
         currentAbs <= 7.5f -> Color.Green
         currentAbs <= 15.0f -> Color(0xFFFF5722)
         else -> Color.Red
     }
+
+    val indicatorColor by animateColorAsState(
+        targerColor,
+        tween(durationMillis = 500),
+        "color animation"
+    )
 
     Box(
         modifier = Modifier.size(300.dp).padding(16.dp),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // Gri Arka Plan Yayın
+            // backside
             drawArc(
                 color = Color.LightGray.copy(alpha = 0.3f),
                 startAngle = 135f,
@@ -82,7 +86,7 @@ fun PostureVisualizer(currentPitch: Float) {
                 style = Stroke(width = 50f, cap = StrokeCap.Round)
             )
 
-            // Hareketli Ön Plan Yayın
+            // frontside
             val finalSweep = (currentAbs / 45f) * 270f
             drawArc(
                 color = indicatorColor,
@@ -92,6 +96,8 @@ fun PostureVisualizer(currentPitch: Float) {
                 style = Stroke(width = 40f, cap = StrokeCap.Round)
             )
         }
+
+
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             // Rakamın değiştiğini görmek için tek hane formatı

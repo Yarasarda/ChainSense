@@ -26,12 +26,24 @@ class MainViewModel(application: Application): AndroidViewModel(application) {
                 context = getApplication(),
                 onConnectionStateChanged = { isConnected ->
                     connectionStatus = if (isConnected) ConnectionStatus.CONNECTED else ConnectionStatus.DISCONNECTED
+
+                    if (!isConnected) {
+                        _currentPitch.floatValue = 0f
+                        activeDeviceAddress = null
+                    }
                 },
                 onDataReceived = { data ->
                     updatePitch(data.toFloatOrNull() ?: 0f)
                 }
             )
         }
+    }
+
+    fun disconnectDevice() {
+        bleManager?.disconnect()
+        activeDeviceAddress = null
+        _currentPitch.floatValue = 0f
+        offset = 0f
     }
 
     @SuppressLint("MissingPermission")

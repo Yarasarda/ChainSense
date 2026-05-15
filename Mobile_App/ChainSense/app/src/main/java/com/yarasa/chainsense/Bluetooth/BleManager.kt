@@ -44,6 +44,10 @@ class BleManager(
         val device = bluetoothAdapter?.getRemoteDevice(address)
         bluetoothGatt = device?.connectGatt(context, false, gattCallback)
     }
+    @SuppressLint("MissingPermission")
+    fun disconnect() {
+        bluetoothGatt?.disconnect()
+    }
 
     private val gattCallback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
@@ -53,6 +57,10 @@ class BleManager(
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 onConnectionStateChanged(false)
+                gatt.close()
+                if (bluetoothGatt == gatt) {
+                    bluetoothGatt = null
+                }
             }
         }
 

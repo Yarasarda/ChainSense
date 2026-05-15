@@ -22,38 +22,37 @@ fun ProfileScreen(viewModel: MainViewModel) {
     val status = viewModel.connectionStatus
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(5.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Cihaz Yönetimi", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-
         Button(
             onClick = { viewModel.scanForDevices() },
-            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 1.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Cihazları Tara")
+            Text("Cihazları Ara")
         }
+
+        Divider(modifier = Modifier.padding(bottom = 8.dp))
 
         LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
             items(devices) { device ->
-                val isThisDeviceConnecting = device.address == activeAddress
+                val isThisDeviceActive = device.address == activeAddress
 
-                val statusText = if (isThisDeviceConnecting) {
-                    when (status) {
-                        MainViewModel.ConnectionStatus.CONNECTING -> "Bağlanıyor..."
-                        MainViewModel.ConnectionStatus.CONNECTED -> "Bağlandı ✓"
-                        else -> "Bağlan"
-                    }
-                } else "Bağlan"
+                val isConnected = isThisDeviceActive && status == MainViewModel.ConnectionStatus.CONNECTED
+                val isConnecting = isThisDeviceActive && status == MainViewModel.ConnectionStatus.CONNECTING
 
                 DeviceItem(
                     device = device,
-                    statusText = statusText,
-                    isConnected = isThisDeviceConnecting && status == MainViewModel.ConnectionStatus.CONNECTED
-                ) {
-                    viewModel.initializeBluetooth(device.address)
-                }
+                    isConnected = isConnected,
+                    isConnecting = isConnecting,
+                    onConnectClick = { viewModel.initializeBluetooth(device.address) },
+                    onDisconnectClick = { viewModel.disconnectDevice() }
+                )
             }
         }
     }
@@ -61,25 +60,61 @@ fun ProfileScreen(viewModel: MainViewModel) {
 
 @SuppressLint("MissingPermission")
 @Composable
-fun DeviceItem(device: BluetoothDevice, statusText: String, isConnected: Boolean, onConnectClick: () -> Unit) {
+fun DeviceItem(
+    device: BluetoothDevice,
+    isConnected: Boolean,
+    isConnecting: Boolean,
+    onConnectClick: () -> Unit,
+    onDisconnectClick: () -> Unit
+) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        onClick = onConnectClick
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isConnected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+        )
     ) {
         Row(
-            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
-                Text(text = device.name ?: "Bilinmeyen", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(text = device.address, fontSize = 12.sp, color = Color.Gray)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = device.name ?: "Bilinmeyen Cihaz",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+                Text(
+                    text = device.address,
+                    fontSize = 13.sp,
+                    color = Color.Gray
+                )
             }
-            Text(
-                text = statusText,
-                color = if (isConnected) Color(0xFF4CAF50) else Color(0xFF2196F3),
-                fontWeight = FontWeight.ExtraBold
-            )
+
+            Button(
+                onClick = { if (isConnected) onDisconnectClick() else onConnectClick() },
+                enabled = !isConnecting,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isConnected) Color.Red else Color(0xFF17A605)
+                ),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp)
+            ) {
+                Text(
+                    text = when {
+                        isConnecting -> "..."
+                        isConnected -> "Kes ＞﹏＜"
+                        else -> "Bağlan ヾ(•ω•`)o"
+                    },
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
         }
     }
 }
