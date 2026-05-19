@@ -3,122 +3,121 @@ package com.yarasa.chainsense
 import android.annotation.SuppressLint
 import android.app.Application
 import android.bluetooth.BluetoothDevice
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.IBinder
 import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.yarasa.chainsense.Bluetooth.BleManager
+import com.yarasa.chainsense.Bluetooth.PostureService
+import kotlinx.coroutines.launch
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+
     enum class ConnectionStatus { DISCONNECTED, CONNECTING, CONNECTED }
 
-    // --- DURUM VE BAĞLANTI ---
+    // --- 1. UI STATE'LERİ (Servisten beslenecekler) ---
     var connectionStatus by mutableStateOf(ConnectionStatus.DISCONNECTED)
+        private set
     var activeDeviceAddress by mutableStateOf<String?>(null)
-    val foundDevices = mutableStateListOf<BluetoothDevice>()
+        private set
 
-    // --- AÇI VE KALİBRASYON ---
     private val _currentPitch = mutableFloatStateOf(0f)
     val currentPitch: State<Float> = _currentPitch
-    private var offset = 0f
 
-    // --- KAMBURLUK AYARLARI (HomeScreen'den Slider ile kontrol edilecek) ---
-    var slouchThreshold by mutableFloatStateOf(15f) // Kaç dereceyi geçerse kambur?
-    var slouchDurationMillis by mutableLongStateOf(3000L) // Kaç saniye (ms) durmalı?
-
-    // --- KAMBURLUK TAKİP MOTORU ---
-    var totalSlouchCount by mutableIntStateOf(0) // Toplam kaç kere tescillendi?
+    var slouchProgress by mutableFloatStateOf(0f)
+        private set
+    var totalSlouchCount by mutableIntStateOf(0)
         private set
 
-    var slouchProgress by mutableFloatStateOf(0f) // UI'daki halka için (0.0 - 1.0 arası)
-        private set
+    val foundDevices = mutableStateListOf<BluetoothDevice>()
 
-    private var slouchStartTime: Long = 0
-    private var isCheckingSlouch = false
+    // Ayarlar UI'da gösterilecek
+    var slouchThreshold by mutableFloatStateOf(15f)
+    var slouchDurationMillis by mutableLongStateOf(3000L)
 
-    private var bleManager: BleManager? = null
+    // --- 2. SERVİS BAĞLANTISI (BINDING) ---
+    private var postureService: PostureService? = null
+    private var isBound by mutableStateOf(false)
 
-    private fun ensureBleManagerInitialized() {
-        if (bleManager == null) {
-            bleManager = BleManager(
-                context = getApplication(),
-                onConnectionStateChanged = { isConnected ->
-                    connectionStatus = if (isConnected) ConnectionStatus.CONNECTED else ConnectionStatus.DISCONNECTED
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            // Servis bağlandığında köprüyü kur
+            val binder = service as PostureService.LocalBinder
+            postureService = binder.getService()
+            isBound = true
 
-                    if (!isConnected) {
-                        resetLogicState() // Bağlantı koptuğunda verileri temizle
-                    }
-                },
-                onDataReceived = { data ->
-                    updatePitch(data.toFloatOrNull() ?: 0f)
-                }
-            )
+            // Servis bağlandığı an verileri dinlemeye ve ayarları eşitlemeye başla
+            syncSettingsToService()
+            observeServiceData()
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            postureService = null
+            isBound = false
+            connectionStatus = ConnectionStatus.DISCONNECTED
         }
     }
 
-    // --- KRİTİK MANTIK: HER VERİ GELDİĞİNDE ÇALIŞAN MOTOR ---
-    fun updatePitch(rawPitch: Float) {
-        val adjustedPitch = rawPitch - offset
-        _currentPitch.floatValue = adjustedPitch
+    init {
+        // ViewModel ilk yaratıldığında Servisi başlat ve bağlan
+        startAndBindService()
+    }
 
-        // Kamburluk tespiti başlasın mı?
-        if (adjustedPitch > slouchThreshold) {
-            if (!isCheckingSlouch) {
-                // İlk kez eşiği aştı, kronometreyi başlat
-                isCheckingSlouch = true
-                slouchStartTime = System.currentTimeMillis()
-                slouchProgress = 0f
-            } else {
-                // Zaten eşiğin üstünde, ne kadar süredir böyle duruyor?
-                val elapsed = System.currentTimeMillis() - slouchStartTime
+    fun startAndBindService() {
+        val intent = Intent(getApplication(), PostureService::class.java).apply {
+            action = PostureService.ACTION_START
+        }
 
-                // İlerlemeyi 0.0 ile 1.0 arasında güncelle (Halka doluyor...)
-                slouchProgress = (elapsed.toFloat() / slouchDurationMillis).coerceIn(0f, 1f)
+        // Android 8.0+ için Foreground Service olarak başlatmak zorunlu
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            getApplication<Application>().startForegroundService(intent)
+        } else {
+            getApplication<Application>().startService(intent)
+        }
 
-                if (elapsed >= slouchDurationMillis) {
-                    // TESCİLLİ KAMBURLUK! Sayacı bir artır
-                    totalSlouchCount++
+        // Servise Bind (Abone) ol
+        getApplication<Application>().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+    }
 
-                    // İşlem bitti, bir sonraki tespit için sıfırla
-                    isCheckingSlouch = false
-                    slouchStartTime = 0
-                    slouchProgress = 0f
+    override fun onCleared() {
+        super.onCleared()
+        // ViewModel ölürse bağlantıyı kopar (Ama servis arkada yaşamaya devam eder!)
+        if (isBound) {
+            getApplication<Application>().unbindService(serviceConnection)
+            isBound = false
+        }
+    }
 
-                    // TODO: Buraya bir titreşim/vibration tetikleyici eklenebilir
+    // --- 3. SERVİSTEN GELEN AKIŞI (FLOW) DİNLEME ---
+    private fun observeServiceData() {
+        postureService?.let { service ->
+            viewModelScope.launch {
+                service.currentPitch.collect { _currentPitch.floatValue = it }
+            }
+            viewModelScope.launch {
+                service.slouchProgress.collect { slouchProgress = it }
+            }
+            viewModelScope.launch {
+                service.totalSlouchCount.collect { totalSlouchCount = it }
+            }
+            viewModelScope.launch {
+                service.connectionState.collect { isConnected ->
+                    connectionStatus = if (isConnected) ConnectionStatus.CONNECTED else ConnectionStatus.DISCONNECTED
+                    if (!isConnected) activeDeviceAddress = null
                 }
             }
-        } else {
-            // Kullanıcı dikleştiği an her şeyi durdur (False positive önleme)
-            // Hysteresis etkisi için eşiğin bir tık altına (örn -2) inmesini de bekleyebilirsin
-            isCheckingSlouch = false
-            slouchStartTime = 0
-            slouchProgress = 0f
         }
     }
 
-    // --- KONTROL FONKSİYONLARI ---
-    fun calibrate() {
-        offset += _currentPitch.floatValue
-        _currentPitch.floatValue = 0f
-    }
-
-    fun disconnectDevice() {
-        bleManager?.disconnect()
-        resetLogicState()
-    }
-
-    private fun resetLogicState() {
-        activeDeviceAddress = null
-        _currentPitch.floatValue = 0f
-        offset = 0f
-        totalSlouchCount = 0
-        slouchProgress = 0f
-        isCheckingSlouch = false
-    }
-
-    @SuppressLint("MissingPermission")
+    // --- 4. UI'DAN SERVİSE EMİR GÖNDERME FONKSİYONLARI ---
+    @SuppressLint("MissingPermission") // Android Studio'ya "Aga sen karışma, izinleri ben MainActivity'de hallettim" diyoruz.
     fun scanForDevices() {
-        ensureBleManagerInitialized()
         foundDevices.clear()
-        bleManager?.startScanning { device ->
+        postureService?.scanForDevices { device ->
             if (!device.name.isNullOrBlank() && foundDevices.none { it.address == device.address }) {
                 foundDevices.add(device)
             }
@@ -128,7 +127,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun initializeBluetooth(macAddress: String) {
         activeDeviceAddress = macAddress
         connectionStatus = ConnectionStatus.CONNECTING
-        ensureBleManagerInitialized()
-        bleManager?.connectToDevice(macAddress)
+        postureService?.connectToDevice(macAddress)
+    }
+
+    fun disconnectDevice() {
+        postureService?.disconnectDevice()
+        activeDeviceAddress = null
+    }
+
+    fun calibrate() {
+        postureService?.calibrate()
+    }
+
+    // --- 5. AYAR GÜNCELLEMELERİ ---
+    // HomeScreen'deki Slider'lar değiştiğinde bu fonksiyonları çağır ki Servis'in haberi olsun
+    fun updateThreshold(newThreshold: Float) {
+        slouchThreshold = newThreshold
+        postureService?.slouchThreshold = newThreshold
+    }
+
+    fun updateDuration(newDuration: Long) {
+        slouchDurationMillis = newDuration
+        postureService?.slouchDurationMillis = newDuration
+    }
+
+    private fun syncSettingsToService() {
+        postureService?.slouchThreshold = slouchThreshold
+        postureService?.slouchDurationMillis = slouchDurationMillis
     }
 }

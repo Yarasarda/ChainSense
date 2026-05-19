@@ -57,30 +57,34 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions.entries.all { it.value }) {
+            viewModel.startAndBindService()
         } else {
-            Toast.makeText(this, "İzinler eksik aga, Bluetooth çalışmaz!", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Aga izinler eksik, arka planda çalışamam!", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun checkAndRequestPermissions() {
-        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Android 12+
-            arrayOf(
-                android.Manifest.permission.BLUETOOTH_SCAN,
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.ACCESS_FINE_LOCATION
-            )
+        val permissionsToRequest = mutableListOf<String>()
+
+        // Bluetooth İzinleri (Android 12+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissionsToRequest.add(android.Manifest.permission.BLUETOOTH_SCAN)
+            permissionsToRequest.add(android.Manifest.permission.BLUETOOTH_CONNECT)
         } else {
-            // Android 11-
-            arrayOf(
-                android.Manifest.permission.BLUETOOTH,
-                android.Manifest.permission.BLUETOOTH_ADMIN,
-                android.Manifest.permission.ACCESS_FINE_LOCATION
-            )
+            permissionsToRequest.add(android.Manifest.permission.BLUETOOTH)
+            permissionsToRequest.add(android.Manifest.permission.BLUETOOTH_ADMIN)
         }
-        permissionLauncher.launch(permissions)
+
+        // Lokasyon İzni (Bluetooth taraması için şart)
+        permissionsToRequest.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
+
+        // BİLDİRİM İZNİ (Android 13+ için ZORUNLU)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionsToRequest.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        permissionLauncher.launch(permissionsToRequest.toTypedArray())
     }
-}
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,7 +119,9 @@ fun ChainSenseApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                         selected = currentRoute == screen.route,
                         onClick = {
                             navController.navigate(screen.route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
                                 launchSingleTop = true
                                 restoreState = true
                             }
@@ -135,7 +141,9 @@ fun ChainSenseApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             }
             composable(Screen.Stats.route) { StatsScreen() }
             composable(Screen.Profile.route) {
-                ProfileScreen(viewModel = viewModel) }
+                ProfileScreen(viewModel = viewModel)
+            }
         }
     }
+}
 }

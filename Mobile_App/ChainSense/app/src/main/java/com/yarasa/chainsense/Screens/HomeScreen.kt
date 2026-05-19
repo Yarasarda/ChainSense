@@ -123,7 +123,7 @@ fun SettingsSection(viewModel: MainViewModel) {
         Text(text = "Uyarı Eşiği: ${viewModel.slouchThreshold.toInt()}°", fontSize = 14.sp)
         Slider(
             value = viewModel.slouchThreshold,
-            onValueChange = { viewModel.slouchThreshold = it },
+            onValueChange = { viewModel.updateThreshold(it)},
             valueRange = 5f..45f
         )
 
@@ -131,7 +131,7 @@ fun SettingsSection(viewModel: MainViewModel) {
         Text(text = "Onay Süresi: ${viewModel.slouchDurationMillis / 1000} Saniye", fontSize = 14.sp)
         Slider(
             value = (viewModel.slouchDurationMillis / 1000).toFloat(),
-            onValueChange = { viewModel.slouchDurationMillis = (it * 1000).toLong() },
+            onValueChange = { viewModel.updateDuration((it * 1000).toLong()) },
             valueRange = 1f..30f,
             steps = 9
         )
