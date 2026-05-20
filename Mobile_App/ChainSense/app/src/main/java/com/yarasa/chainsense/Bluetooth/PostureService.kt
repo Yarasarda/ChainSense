@@ -13,11 +13,22 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.yarasa.chainsense.Data.ChainSenseDatabase
+import com.yarasa.chainsense.Data.SettingsEntity
+import com.yarasa.chainsense.Data.SlouchLogEntity
 import com.yarasa.chainsense.MainActivity
 import com.yarasa.chainsense.R
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.jvm.java
 
 class PostureService : Service(){
@@ -27,6 +38,10 @@ class PostureService : Service(){
     inner class LocalBinder : Binder() {
         fun getService(): PostureService = this@PostureService
     }
+
+    // --- COROUTINE VE DATABASE
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private lateinit var  database: ChainSenseDatabase
 
     // --- CANLI VERİLER (StateFlow ile UI'a akacak) ---
     private val _currentPitch = MutableStateFlow(0f)
@@ -45,6 +60,7 @@ class PostureService : Service(){
     var slouchThreshold = 15f
     var slouchDurationMillis = 3000L
     private var offset = 0f
+    private var lastRawPitch = 0f
 
     // --- İÇ MOTOR DEĞİŞKENLERİ ---
     private var bleManager: BleManager? = null
@@ -55,7 +71,7 @@ class PostureService : Service(){
 
     companion object {
         const val CHANNEL_ID = "ChainSense_Service_Channel"
-        const val NOTIFICATION_ID = 1907
+        const val NOTIFICATION_ID = 352
         const val ACTION_START = "ACTION_START_POSTURE_SERVICE"
         const val ACTION_STOP = "ACTION_STOP_POSTURE_SERVICE"
     }
@@ -63,7 +79,28 @@ class PostureService : Service(){
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+
+        database = ChainSenseDatabase.getDatabase(this)
+
+        serviceScope.launch {
+            val savedSettings = database.settingsDao().getSettingsNow()
+            if (savedSettings != null) {
+                slouchThreshold = savedSettings.slouchTreshold
+                slouchDurationMillis = savedSettings.slouchDurationMilis
+            } else {
+                database.settingsDao().insertOrUpdateSettings(
+                    SettingsEntity(1, slouchThreshold, slouchDurationMillis)
+                )
+            }
+        }
+
         initBleManager()
+    }
+
+    override fun onDestroy() {
+        bleManager?.disconnect()
+        serviceScope.cancel()
+        super.onDestroy()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -82,11 +119,6 @@ class PostureService : Service(){
         return binder
     }
 
-    override fun onDestroy() {
-        bleManager?.disconnect()
-        super.onDestroy()
-    }
-
     // --- BLE VE MOTOR MANTIĞI (ViewModel'den buraya taşıdık) ---
     private fun initBleManager() {
         bleManager = BleManager(
@@ -102,7 +134,8 @@ class PostureService : Service(){
     }
 
     private fun processPitch(rawPitch: Float) {
-        val adjustedPitch = rawPitch - offset
+        lastRawPitch = rawPitch
+        val adjustedPitch = kotlin.math.abs(rawPitch - offset)
         _currentPitch.value = adjustedPitch
 
         if (isAlertActive) {
@@ -131,8 +164,21 @@ class PostureService : Service(){
                     isAlertActive = true
                     _slouchProgress.value = 1f
 
-                    // KAMBURLUK TESCİLLENDİĞİ AN BİLDİRİMİ GÜNCELLE
+                    //Bildirimi güncelle
                     updateNotification(_totalSlouchCount.value)
+
+                    //Veritabanına kaydet
+                    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                    val todayStr = dateFormat.format(Date())
+
+                    serviceScope.launch {
+                        database.slouchLogDao().insertLog(
+                            SlouchLogEntity(
+                                dateString = todayStr,
+                                timestamp = System.currentTimeMillis()
+                            )
+                        )
+                    }
 
                     // TODO: Titreşim tetiklenecek
                 }
@@ -161,8 +207,13 @@ class PostureService : Service(){
     }
 
     fun calibrate() {
-        offset += _currentPitch.value
+        offset = lastRawPitch
         _currentPitch.value = 0f
+
+        isCheckingSlouch = false
+        isAlertActive = false
+        slouchStartTime = 0
+        _slouchProgress.value = 0f
     }
 
     private fun resetLogicState() {

@@ -11,15 +11,24 @@ import android.os.IBinder
 import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.yarasa.chainsense.Bluetooth.BleManager
 import com.yarasa.chainsense.Bluetooth.PostureService
+import com.yarasa.chainsense.Data.ChainSenseDatabase
+import com.yarasa.chainsense.Data.SettingsEntity
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     enum class ConnectionStatus { DISCONNECTED, CONNECTING, CONNECTED }
 
-    // --- 1. UI STATE'LERİ (Servisten beslenecekler) ---
+    // --- ROOM VERİTABANI BAĞLANTILARI ---
+    private val database = ChainSenseDatabase.getDatabase(application)
+    private val settingsDao = database.settingsDao()
+    private val slouchLogDao = database.slouchLogDao()
+
+    // --- 1. UI STATE'LERİ (Arayüzü besleyen veriler) ---
     var connectionStatus by mutableStateOf(ConnectionStatus.DISCONNECTED)
         private set
     var activeDeviceAddress by mutableStateOf<String?>(null)
@@ -30,6 +39,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     var slouchProgress by mutableFloatStateOf(0f)
         private set
+
     var totalSlouchCount by mutableIntStateOf(0)
         private set
 
@@ -45,12 +55,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            // Servis bağlandığında köprüyü kur
             val binder = service as PostureService.LocalBinder
             postureService = binder.getService()
             isBound = true
 
-            // Servis bağlandığı an verileri dinlemeye ve ayarları eşitlemeye başla
             syncSettingsToService()
             observeServiceData()
         }
@@ -63,29 +71,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        // ViewModel ilk yaratıldığında Servisi başlat ve bağlan
-        startAndBindService()
+        // MÜHENDİSLİK DOKUNUŞU: Uygulama açılışında artık körleme servis başlatmıyoruz!
+        // Onun yerine veritabanındaki ayarları ve geçmişi yüklüyoruz.
+
+        // 1. Kullanıcının kayıtlı ayarlarını çek ve UI'a yansıt
+        viewModelScope.launch {
+            settingsDao.getSettingsFlow().collect { savedSettings ->
+                savedSettings?.let {
+                    slouchThreshold = it.slouchTreshold
+                    slouchDurationMillis = it.slouchDurationMilis
+                    syncSettingsToService() // Servis çalışıyorsa anında ona da ilet
+                }
+            }
+        }
+
+        // 2. Bugünün tarihini bul ve loglardan toplam kamburluk sayısını CANLI dinle!
+        val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        viewModelScope.launch {
+            slouchLogDao.getDailySlouchCountFlow(todayStr).collect { count ->
+                totalSlouchCount = count // Veritabanı her log yediğinde UI otomatik artacak!
+            }
+        }
     }
 
+    // MainActivity'den (İzinler Onaylanınca) Çağrılacak!
     fun startAndBindService() {
         val intent = Intent(getApplication(), PostureService::class.java).apply {
             action = PostureService.ACTION_START
         }
 
-        // Android 8.0+ için Foreground Service olarak başlatmak zorunlu
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             getApplication<Application>().startForegroundService(intent)
         } else {
             getApplication<Application>().startService(intent)
         }
 
-        // Servise Bind (Abone) ol
         getApplication<Application>().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
     }
 
     override fun onCleared() {
         super.onCleared()
-        // ViewModel ölürse bağlantıyı kopar (Ama servis arkada yaşamaya devam eder!)
+        // ViewModel ölürse bağlantıyı kopar (Ama servis arkada yaşamaya devam eder)
         if (isBound) {
             getApplication<Application>().unbindService(serviceConnection)
             isBound = false
@@ -101,9 +127,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch {
                 service.slouchProgress.collect { slouchProgress = it }
             }
-            viewModelScope.launch {
-                service.totalSlouchCount.collect { totalSlouchCount = it }
-            }
+
+            // DİKKAT: service.totalSlouchCount dinlemesini sildik!
+            // Çünkü artık onu direkt Init bloğunda Room Veritabanından dinliyoruz.
+
             viewModelScope.launch {
                 service.connectionState.collect { isConnected ->
                     connectionStatus = if (isConnected) ConnectionStatus.CONNECTED else ConnectionStatus.DISCONNECTED
@@ -113,8 +140,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- 4. UI'DAN SERVİSE EMİR GÖNDERME FONKSİYONLARI ---
-    @SuppressLint("MissingPermission") // Android Studio'ya "Aga sen karışma, izinleri ben MainActivity'de hallettim" diyoruz.
+    // --- 4. UI'DAN SERVİSE EMİR GÖNDERME ---
+    @SuppressLint("MissingPermission")
     fun scanForDevices() {
         foundDevices.clear()
         postureService?.scanForDevices { device ->
@@ -124,6 +151,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    @SuppressLint("MissingPermission") // Garantiyi alalım
     fun initializeBluetooth(macAddress: String) {
         activeDeviceAddress = macAddress
         connectionStatus = ConnectionStatus.CONNECTING
@@ -139,16 +167,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         postureService?.calibrate()
     }
 
-    // --- 5. AYAR GÜNCELLEMELERİ ---
-    // HomeScreen'deki Slider'lar değiştiğinde bu fonksiyonları çağır ki Servis'in haberi olsun
+    // --- 5. AYAR GÜNCELLEMELERİ VE VERİTABANINA YAZMA ---
     fun updateThreshold(newThreshold: Float) {
         slouchThreshold = newThreshold
         postureService?.slouchThreshold = newThreshold
+
+        // MÜHENDİSLİK: Ayarı anında veritabanına kazı (Kalıcı hafıza)
+        viewModelScope.launch {
+            settingsDao.insertOrUpdateSettings(
+                SettingsEntity(id = 1, slouchTreshold = newThreshold, slouchDurationMilis = slouchDurationMillis)
+            )
+        }
     }
 
     fun updateDuration(newDuration: Long) {
         slouchDurationMillis = newDuration
         postureService?.slouchDurationMillis = newDuration
+
+        // MÜHENDİSLİK: Ayarı anında veritabanına kazı (Kalıcı hafıza)
+        viewModelScope.launch {
+            settingsDao.insertOrUpdateSettings(
+                SettingsEntity(id = 1, slouchTreshold = slouchThreshold, slouchDurationMilis = newDuration)
+            )
+        }
     }
 
     private fun syncSettingsToService() {
