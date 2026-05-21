@@ -14,10 +14,12 @@ import androidx.lifecycle.viewModelScope
 import com.yarasa.chainsense.Bluetooth.PostureService
 import com.yarasa.chainsense.Data.ChainSenseDatabase
 import com.yarasa.chainsense.Data.SettingsEntity
+import com.yarasa.chainsense.Data.SlouchLogEntity
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.collections.emptyList
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -50,8 +52,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var slouchDurationMillis by mutableLongStateOf(3000L)
 
     // --- 2. SERVİS BAĞLANTISI (BINDING) ---
+    @SuppressLint("StaticFieldLeak")
     private var postureService: PostureService? = null
     private var isBound by mutableStateOf(false)
+
+    // --- İSTATİSTİKLER ---
+    val todaySlouchLogs = mutableStateListOf<SlouchLogEntity>()
+    var weeklySlouchCount by mutableIntStateOf(0)
+        private set
+    var monthlySlouchCount by mutableIntStateOf(0)
+        private set
+
+    // MÜHENDİSLİK: Grafiğin okuyacağı veri modeli
+    data class ChartPoint(val hour: Int, val minute: Int, val count: Int)
+
+    var dailyChartData by mutableStateOf<List<ChartPoint>>(emptyList())
+        private set
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -71,30 +87,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        // MÜHENDİSLİK DOKUNUŞU: Uygulama açılışında artık körleme servis başlatmıyoruz!
-        // Onun yerine veritabanındaki ayarları ve geçmişi yüklüyoruz.
-
         // 1. Kullanıcının kayıtlı ayarlarını çek ve UI'a yansıt
         viewModelScope.launch {
             settingsDao.getSettingsFlow().collect { savedSettings ->
                 savedSettings?.let {
                     slouchThreshold = it.slouchTreshold
                     slouchDurationMillis = it.slouchDurationMilis
-                    syncSettingsToService() // Servis çalışıyorsa anında ona da ilet
+                    syncSettingsToService()
                 }
             }
         }
 
-        // 2. Bugünün tarihini bul ve loglardan toplam kamburluk sayısını CANLI dinle!
         val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val weekAgoStr = getDateDaysAgo(7)
+        val monthAgoStr = getDateDaysAgo(30)
+
         viewModelScope.launch {
             slouchLogDao.getDailySlouchCountFlow(todayStr).collect { count ->
-                totalSlouchCount = count // Veritabanı her log yediğinde UI otomatik artacak!
+                totalSlouchCount = count
+            }
+        }
+
+        viewModelScope.launch {
+            slouchLogDao.getTodayLogFlow(todayStr).collect { logs ->
+                todaySlouchLogs.clear()
+                todaySlouchLogs.addAll(logs)
+
+                // MÜHENDİSLİK: İşte senin o kopyalamaya üşendiğin, SADECE SAATE GÖRE gruplayan kod bloğu!
+                val calendar = java.util.Calendar.getInstance()
+
+                val groupedData = logs.groupBy { log ->
+                    calendar.timeInMillis = log.timestamp
+                    calendar.get(java.util.Calendar.HOUR_OF_DAY) // Dakikayı çöpe attık, sadece saati alıyoruz.
+                }.map { (hour, logList) ->
+                    ChartPoint(
+                        hour = hour,
+                        minute = 0, // Grafikte dakikanın bir önemi yok
+                        count = logList.size // O saat içindeki vukuatların toplam sayısı
+                    )
+                }.sortedBy { it.hour } // Saatleri sıraya diziyoruz ki grafik yamulmasın.
+
+                dailyChartData = groupedData
+            }
+        }
+
+        viewModelScope.launch {
+            slouchLogDao.getSlouchCountBetweenDatesFlow(weekAgoStr, todayStr).collect { count ->
+                weeklySlouchCount = count
+            }
+        }
+
+        viewModelScope.launch {
+            slouchLogDao.getSlouchCountBetweenDatesFlow(monthAgoStr, todayStr).collect { count ->
+                monthlySlouchCount = count
             }
         }
     }
 
-    // MainActivity'den (İzinler Onaylanınca) Çağrılacak!
     fun startAndBindService() {
         val intent = Intent(getApplication(), PostureService::class.java).apply {
             action = PostureService.ACTION_START
@@ -111,7 +160,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        // ViewModel ölürse bağlantıyı kopar (Ama servis arkada yaşamaya devam eder)
         if (isBound) {
             getApplication<Application>().unbindService(serviceConnection)
             isBound = false
@@ -127,9 +175,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch {
                 service.slouchProgress.collect { slouchProgress = it }
             }
-
-            // DİKKAT: service.totalSlouchCount dinlemesini sildik!
-            // Çünkü artık onu direkt Init bloğunda Room Veritabanından dinliyoruz.
 
             viewModelScope.launch {
                 service.connectionState.collect { isConnected ->
@@ -172,7 +217,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         slouchThreshold = newThreshold
         postureService?.slouchThreshold = newThreshold
 
-        // MÜHENDİSLİK: Ayarı anında veritabanına kazı (Kalıcı hafıza)
         viewModelScope.launch {
             settingsDao.insertOrUpdateSettings(
                 SettingsEntity(id = 1, slouchTreshold = newThreshold, slouchDurationMilis = slouchDurationMillis)
@@ -184,7 +228,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         slouchDurationMillis = newDuration
         postureService?.slouchDurationMillis = newDuration
 
-        // MÜHENDİSLİK: Ayarı anında veritabanına kazı (Kalıcı hafıza)
         viewModelScope.launch {
             settingsDao.insertOrUpdateSettings(
                 SettingsEntity(id = 1, slouchTreshold = slouchThreshold, slouchDurationMilis = newDuration)
@@ -195,5 +238,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun syncSettingsToService() {
         postureService?.slouchThreshold = slouchThreshold
         postureService?.slouchDurationMillis = slouchDurationMillis
+    }
+
+    private fun getDateDaysAgo(days: Int): String {
+        val calendar = java.util.Calendar.getInstance()
+
+        calendar.add(java.util.Calendar.DAY_OF_YEAR, days * -1)
+        return java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(calendar.time)
     }
 }

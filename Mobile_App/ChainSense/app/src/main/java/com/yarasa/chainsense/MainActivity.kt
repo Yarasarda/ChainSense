@@ -139,7 +139,14 @@ fun ChainSenseApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             composable(Screen.Home.route) {
                 HomeScreen(viewModel = viewModel)
             }
-            composable(Screen.Stats.route) { StatsScreen() }
+            composable(Screen.Stats.route) {
+                StatsScreen(
+                    weeklyCount = viewModel.weeklySlouchCount,
+                    monthlyCount = viewModel.monthlySlouchCount,
+                    chartData = viewModel.dailyChartData,
+                    todayLogs = viewModel.todaySlouchLogs
+                )
+            }
             composable(Screen.Profile.route) {
                 ProfileScreen(viewModel = viewModel)
             }

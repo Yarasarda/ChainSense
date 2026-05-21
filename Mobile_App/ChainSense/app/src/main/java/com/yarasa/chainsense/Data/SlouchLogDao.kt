@@ -19,4 +19,10 @@ interface SlouchLogDao {
     @Query("SELECT * FROM slouch_log_table WHERE dateString = :date ORDER BY timestamp ASC")
     suspend fun getLogsForDate(date: String): List<SlouchLogEntity>
 
+    @Query("SELECT * FROM slouch_log_table WHERE dateString = :date ORDER BY timestamp DESC")
+    fun getTodayLogFlow(date: String): Flow<List<SlouchLogEntity>>
+
+    @Query("SELECT COUNT(*) FROM slouch_log_table WHERE dateString BETWEEN :startDate AND :endDate")
+    fun getSlouchCountBetweenDatesFlow(startDate: String, endDate: String): Flow<Int>
+
 }
