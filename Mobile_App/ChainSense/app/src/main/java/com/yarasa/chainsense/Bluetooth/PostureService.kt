@@ -56,6 +56,10 @@ class PostureService : Service(){
     private val _connectionState = MutableStateFlow(false)
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
 
+    // MÜHENDİSLİK: Batarya State'i
+    private val _batteryLevel = MutableStateFlow(-1)
+    val batteryLevel: StateFlow<Int> = _batteryLevel.asStateFlow()
+
     // --- KAMBURLUK AYARLARI ---
     var slouchThreshold = 15f
     var slouchDurationMillis = 3000L
@@ -68,6 +72,7 @@ class PostureService : Service(){
     private var slouchStartTime: Long = 0
     private var isAlertActive = false
     private val hysteresisOffset = 3f
+
 
     companion object {
         const val CHANNEL_ID = "ChainSense_Service_Channel"
@@ -119,7 +124,7 @@ class PostureService : Service(){
         return binder
     }
 
-    // --- BLE VE MOTOR MANTIĞI (ViewModel'den buraya taşıdık) ---
+    // --- BLE VE MOTOR MANTIĞI ---
     private fun initBleManager() {
         bleManager = BleManager(
             context = this,
@@ -129,6 +134,10 @@ class PostureService : Service(){
             },
             onDataReceived = { data ->
                 processPitch(data.toFloatOrNull() ?: 0f)
+            },
+            // MÜHENDİSLİK: Eksik olan batarya kanalı eklendi!
+            onBatteryReceived = { level ->
+                _batteryLevel.value = level
             }
         )
     }
@@ -164,10 +173,8 @@ class PostureService : Service(){
                     isAlertActive = true
                     _slouchProgress.value = 1f
 
-                    //Bildirimi güncelle
                     updateNotification(_totalSlouchCount.value)
 
-                    //Veritabanına kaydet
                     val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                     val todayStr = dateFormat.format(Date())
 
@@ -192,7 +199,6 @@ class PostureService : Service(){
         }
     }
 
-    // --- DIŞARIYA AÇIK (PUBLIC) FONKSİYONLAR ---
     fun connectToDevice(macAddress: String) {
         bleManager?.connectToDevice(macAddress)
     }
@@ -219,10 +225,11 @@ class PostureService : Service(){
     private fun resetLogicState() {
         _currentPitch.value = 0f
         _slouchProgress.value = 0f
+        // MÜHENDİSLİK: Bağlantı kopunca bataryayı da belirsiz (-1) yap!
+        _batteryLevel.value = -1
         isCheckingSlouch = false
         isAlertActive = false
     }
-
 
     private fun createNotificationChannel(){
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O){
@@ -240,11 +247,9 @@ class PostureService : Service(){
 
     private fun updateNotification(currentCount: Int) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        // Aynı NOTIFICATION_ID'yi kullanarak mevcut bildirimi ezip güncelliyoruz
         manager.notify(NOTIFICATION_ID, buildNotification(currentCount))
     }
 
-    // Default parametre olarak 0 verdik ki ilk açılışta patlamasın
     private fun buildNotification(slouchCount: Int = 0): Notification {
         val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
@@ -252,11 +257,10 @@ class PostureService : Service(){
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // Sayaç durumuna göre mesajı dinamik yapıyoruz
         val contentText = if (slouchCount > 0) {
-            "Aktif Takip: Bugün $slouchCount kez kambur durdunuz!"
+            "$slouchCount kez kambur durdunuz!"
         } else {
-            "Duruşunuz arka planda canlı olarak takip ediliyor..."
+            "Hayata karşı oldukça dik duruyorsun :D"
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -264,9 +268,8 @@ class PostureService : Service(){
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
-            .setOnlyAlertOnce(true) // Güncellendiğinde sürekli bildirim sesi ÇIKARMASIN (Amelelik önleyici)
+            .setOnlyAlertOnce(true)
             .setOngoing(true)
             .build()
     }
-
 }

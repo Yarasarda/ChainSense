@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -20,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
+import java.util.Locale
 import com.yarasa.chainsense.MainViewModel
 
 @Composable
@@ -35,7 +37,22 @@ fun HomeScreen(viewModel: MainViewModel) {
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 1. Üst Kısım: Senin hazırladığın Açı Görselleştirici
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // MÜHENDİSLİK: Cihaz bağlı değilse kullanıcıyı kandırma, gri renkte "Bekleniyor" yaz.
+            Text(
+                text = if (isConnected) "Cihaz Bağlı: Sırta Takılı" else "Cihaz Aranıyor...",
+                style = MaterialTheme.typography.titleMedium,
+                color = if (isConnected) MaterialTheme.colorScheme.onSurface else Color.Gray
+            )
+
+            BatteryWidget(level = viewModel.batteryLevel)
+        }
+
+        // 1. Üst Kısım: Açı Görselleştirici
         PostureVisualizer(currentPitch = currentPitch)
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -147,12 +164,14 @@ fun PostureVisualizer(currentPitch: Float) {
         label = "pitch_anim"
     )
     val currentAbs = animatedPitch.coerceIn(0f, 45f)
-    val targerColor = when {
+
+    // Typo düzeltildi (targerColor -> targetColor)
+    val targetColor = when {
         currentAbs <= 7.5f -> Color.Green
         currentAbs <= 15.0f -> Color(0xFFFF5722)
         else -> Color.Red
     }
-    val indicatorColor by animateColorAsState(targerColor, tween(durationMillis = 500), "color animation")
+    val indicatorColor by animateColorAsState(targetColor, tween(durationMillis = 500), "color animation")
 
     Box(modifier = Modifier.size(280.dp).padding(8.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -173,8 +192,66 @@ fun PostureVisualizer(currentPitch: Float) {
             )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = "${String.format("%.1f", absolutePitch)}°", fontSize = 48.sp, fontWeight = FontWeight.Bold)
+            Text(
+                // String format çökmesini engellemek için yerel format (Locale) eklendi
+                text = "${String.format(Locale.getDefault(), "%.1f", absolutePitch)}°",
+                fontSize = 48.sp,
+                fontWeight = FontWeight.Bold
+            )
             Text(text = "Eğim Açısı", fontSize = 14.sp, color = Color.Gray)
         }
+    }
+}
+
+@Composable
+fun BatteryWidget(level: Int) {
+    // MÜHENDİSLİK: Veri yoksa arayüzü yok etme, kullanıcıya "Beklendiğini" söyle!
+    if (level < 0) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .background(Color.Gray.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .background(Color.Gray, RoundedCornerShape(50))
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Bekleniyor",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.Gray,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        return // Bekleniyor çizildiyse aşağıya inme
+    }
+
+    val color = when {
+        level > 80 -> MaterialTheme.colorScheme.primary
+        level > 20 -> MaterialTheme.colorScheme.onSurface
+        else -> Color.Red
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(color.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .background(color, RoundedCornerShape(50))
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "%$level",
+            style = MaterialTheme.typography.labelLarge,
+            color = color,
+            fontWeight = FontWeight.Bold
+        )
     }
 }

@@ -44,6 +44,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     var totalSlouchCount by mutableIntStateOf(0)
         private set
+    var batteryLevel by mutableIntStateOf(-1)
+        private set
 
     val foundDevices = mutableStateListOf<BluetoothDevice>()
 
@@ -174,6 +176,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             viewModelScope.launch {
                 service.slouchProgress.collect { slouchProgress = it }
+            }
+
+            // MÜHENDİSLİK: Servisteki batarya verisini canlı olarak UI'a taşıyoruz!
+            viewModelScope.launch {
+                service.batteryLevel.collect { batteryLevel = it }
             }
 
             viewModelScope.launch {
