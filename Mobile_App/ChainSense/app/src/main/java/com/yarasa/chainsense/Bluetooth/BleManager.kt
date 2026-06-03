@@ -17,8 +17,6 @@ class BleManager(
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
     private var bluetoothGatt: BluetoothGatt? = null
-
-    // Sadece TEK BİR servis ve karakteristik var!
     val SERVICE_UUID: UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b")
     val CHARACTERISTIC_UUID: UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8")
     private val DESCRIPTOR_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
@@ -75,7 +73,7 @@ class BleManager(
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
 
-                // MÜHENDİSLİK: Tek kanal açıyoruz, çakışma riski SIFIR.
+                // Tek kanal
                 val service = gatt.getService(SERVICE_UUID)
                 val char = service?.getCharacteristic(CHARACTERISTIC_UUID)
                 if (char != null) {
@@ -93,15 +91,14 @@ class BleManager(
             if (characteristic.uuid == CHARACTERISTIC_UUID) {
                 val rawData = characteristic.getStringValue(0) ?: ""
 
-                // MÜHENDİSLİK: Gelen paketi "12.5|85" ayıklıyoruz (Demultiplexing)
+                // pil ve eğimi ayırıyoruz
                 val parts = rawData.split("|")
                 if (parts.size == 2) {
-                    onDataReceived(parts[0]) // İlk kısım Pitch
+                    onDataReceived(parts[0])
 
                     val batValue = parts[1].toIntOrNull() ?: -1
-                    onBatteryReceived(batValue) // İkinci kısım Batarya
+                    onBatteryReceived(batValue)
                 } else {
-                    // Eğer eski veriler ("12.5") gelirse çökmeyi engellemek için
                     onDataReceived(rawData)
                 }
             }

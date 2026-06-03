@@ -89,8 +89,6 @@ fun StatsScreen(
                     chartData.forEach { point ->
                         val barHeightfraction = (point.count / maxCount).coerceIn(0f, 1f)
                         val isSelected = selectedHour == point.hour
-
-                        // MÜHENDİSLİK: Çubukların taşıp yazıyı ezmesini engelliyoruz!
                         val maxBarHeight = 110.dp
 
                         Column(
@@ -103,7 +101,7 @@ fun StatsScreen(
                             Box(
                                 modifier = Modifier
                                     .width(24.dp)
-                                    .height(maxBarHeight * barHeightfraction) // fillMaxHeight YERİNE BURASI!
+                                    .height(maxBarHeight * barHeightfraction)
                                     .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
                                     .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray)
                             )

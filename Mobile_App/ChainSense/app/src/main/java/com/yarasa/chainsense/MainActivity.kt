@@ -75,10 +75,10 @@ class MainActivity : ComponentActivity() {
             permissionsToRequest.add(android.Manifest.permission.BLUETOOTH_ADMIN)
         }
 
-        // Lokasyon İzni (Bluetooth taraması için şart)
+        // Lokasyon İzni
         permissionsToRequest.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
 
-        // BİLDİRİM İZNİ (Android 13+ için ZORUNLU)
+        // BİLDİRİM İZNİ (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionsToRequest.add(android.Manifest.permission.POST_NOTIFICATIONS)
         }

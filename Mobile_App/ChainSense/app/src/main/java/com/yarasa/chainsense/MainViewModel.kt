@@ -30,7 +30,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsDao = database.settingsDao()
     private val slouchLogDao = database.slouchLogDao()
 
-    // --- 1. UI STATE'LERİ (Arayüzü besleyen veriler) ---
+    // --- UI STATE'LERİ ---
     var connectionStatus by mutableStateOf(ConnectionStatus.DISCONNECTED)
         private set
     var activeDeviceAddress by mutableStateOf<String?>(null)
@@ -53,7 +53,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var slouchThreshold by mutableFloatStateOf(15f)
     var slouchDurationMillis by mutableLongStateOf(3000L)
 
-    // --- 2. SERVİS BAĞLANTISI (BINDING) ---
+    // --- SERVİS BAĞLANTISI (BINDING) ---
     @SuppressLint("StaticFieldLeak")
     private var postureService: PostureService? = null
     private var isBound by mutableStateOf(false)
@@ -65,7 +65,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var monthlySlouchCount by mutableIntStateOf(0)
         private set
 
-    // MÜHENDİSLİK: Grafiğin okuyacağı veri modeli
     data class ChartPoint(val hour: Int, val minute: Int, val count: Int)
 
     var dailyChartData by mutableStateOf<List<ChartPoint>>(emptyList())
@@ -115,19 +114,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 todaySlouchLogs.clear()
                 todaySlouchLogs.addAll(logs)
 
-                // MÜHENDİSLİK: İşte senin o kopyalamaya üşendiğin, SADECE SAATE GÖRE gruplayan kod bloğu!
                 val calendar = java.util.Calendar.getInstance()
 
                 val groupedData = logs.groupBy { log ->
                     calendar.timeInMillis = log.timestamp
-                    calendar.get(java.util.Calendar.HOUR_OF_DAY) // Dakikayı çöpe attık, sadece saati alıyoruz.
+                    calendar.get(java.util.Calendar.HOUR_OF_DAY)
                 }.map { (hour, logList) ->
                     ChartPoint(
                         hour = hour,
-                        minute = 0, // Grafikte dakikanın bir önemi yok
-                        count = logList.size // O saat içindeki vukuatların toplam sayısı
+                        minute = 0,
+                        count = logList.size
                     )
-                }.sortedBy { it.hour } // Saatleri sıraya diziyoruz ki grafik yamulmasın.
+                }.sortedBy { it.hour }
 
                 dailyChartData = groupedData
             }
@@ -168,7 +166,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- 3. SERVİSTEN GELEN AKIŞI (FLOW) DİNLEME ---
+    // --- SERVİSTEN GELEN AKIŞI (FLOW) DİNLEME ---
     private fun observeServiceData() {
         postureService?.let { service ->
             viewModelScope.launch {
@@ -178,7 +176,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 service.slouchProgress.collect { slouchProgress = it }
             }
 
-            // MÜHENDİSLİK: Servisteki batarya verisini canlı olarak UI'a taşıyoruz!
             viewModelScope.launch {
                 service.batteryLevel.collect { batteryLevel = it }
             }
@@ -192,7 +189,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- 4. UI'DAN SERVİSE EMİR GÖNDERME ---
+    // --- UI'DAN SERVİSE EMİR GÖNDERME ---
     @SuppressLint("MissingPermission")
     fun scanForDevices() {
         foundDevices.clear()
@@ -203,7 +200,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    @SuppressLint("MissingPermission") // Garantiyi alalım
+    @SuppressLint("MissingPermission")
     fun initializeBluetooth(macAddress: String) {
         activeDeviceAddress = macAddress
         connectionStatus = ConnectionStatus.CONNECTING
@@ -219,7 +216,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         postureService?.calibrate()
     }
 
-    // --- 5. AYAR GÜNCELLEMELERİ VE VERİTABANINA YAZMA ---
+    // --- AYAR GÜNCELLEMELERİ VE VERİTABANINA YAZMA ---
     fun updateThreshold(newThreshold: Float) {
         slouchThreshold = newThreshold
         postureService?.slouchThreshold = newThreshold

@@ -42,7 +42,6 @@ fun HomeScreen(viewModel: MainViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // MÜHENDİSLİK: Cihaz bağlı değilse kullanıcıyı kandırma, gri renkte "Bekleniyor" yaz.
             Text(
                 text = if (isConnected) "Cihaz Bağlı: Sırta Takılı" else "Cihaz Aranıyor...",
                 style = MaterialTheme.typography.titleMedium,
@@ -52,34 +51,34 @@ fun HomeScreen(viewModel: MainViewModel) {
             BatteryWidget(level = viewModel.batteryLevel)
         }
 
-        // 1. Üst Kısım: Açı Görselleştirici
+        // 1.Açı Görselleştirici
         PostureVisualizer(currentPitch = currentPitch)
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 2. Onay Barı (Kambur durduğunda saniyeleri sayan bar)
+        // 2.Onay Barı
         SlouchProgressBar(progress = slouchProgress)
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 3. Sayaç ve İstatistik Kartı
+        // 3.Sayaç ve İstatistik Kartı
         SlouchCounterCard(count = slouchCount)
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // 4. Ayarlar Bölümü (Hassasiyet ve Süre)
+        // 4.Ayarlar Bölümü
         SettingsSection(viewModel = viewModel)
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // 5. Kalibrasyon Butonu
+        // 5.Kalibrasyon Butonu
         Button(
             onClick = { viewModel.calibrate() },
             enabled = isConnected,
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text(text = "Duruşumu Sıfırla (Kalibre Et)", fontWeight = FontWeight.Bold)
+            Text(text = "Duruşu Sıfırla", fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -165,7 +164,6 @@ fun PostureVisualizer(currentPitch: Float) {
     )
     val currentAbs = animatedPitch.coerceIn(0f, 45f)
 
-    // Typo düzeltildi (targerColor -> targetColor)
     val targetColor = when {
         currentAbs <= 7.5f -> Color.Green
         currentAbs <= 15.0f -> Color(0xFFFF5722)
@@ -193,7 +191,7 @@ fun PostureVisualizer(currentPitch: Float) {
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                // String format çökmesini engellemek için yerel format (Locale) eklendi
+                // String format çökmesini engellemek için yerel format eklendi
                 text = "${String.format(Locale.getDefault(), "%.1f", absolutePitch)}°",
                 fontSize = 48.sp,
                 fontWeight = FontWeight.Bold
@@ -205,7 +203,6 @@ fun PostureVisualizer(currentPitch: Float) {
 
 @Composable
 fun BatteryWidget(level: Int) {
-    // MÜHENDİSLİK: Veri yoksa arayüzü yok etme, kullanıcıya "Beklendiğini" söyle!
     if (level < 0) {
         Row(
             verticalAlignment = Alignment.CenterVertically,

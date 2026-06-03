@@ -32,7 +32,7 @@ import java.util.Locale
 import kotlin.jvm.java
 
 class PostureService : Service(){
-    // --- BINDER KÖPRÜSÜ (ViewModel'in bu servise bağlanması için) ---
+    // --- BINDER
     private val binder = LocalBinder()
 
     inner class LocalBinder : Binder() {
@@ -43,7 +43,7 @@ class PostureService : Service(){
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private lateinit var  database: ChainSenseDatabase
 
-    // --- CANLI VERİLER (StateFlow ile UI'a akacak) ---
+    // --- CANLI VERİ ---
     private val _currentPitch = MutableStateFlow(0f)
     val currentPitch: StateFlow<Float> = _currentPitch.asStateFlow()
 
@@ -56,7 +56,7 @@ class PostureService : Service(){
     private val _connectionState = MutableStateFlow(false)
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
 
-    // MÜHENDİSLİK: Batarya State'i
+    // Batarya State
     private val _batteryLevel = MutableStateFlow(-1)
     val batteryLevel: StateFlow<Int> = _batteryLevel.asStateFlow()
 
@@ -124,7 +124,7 @@ class PostureService : Service(){
         return binder
     }
 
-    // --- BLE VE MOTOR MANTIĞI ---
+    // --- BLE ---
     private fun initBleManager() {
         bleManager = BleManager(
             context = this,
@@ -135,7 +135,6 @@ class PostureService : Service(){
             onDataReceived = { data ->
                 processPitch(data.toFloatOrNull() ?: 0f)
             },
-            // MÜHENDİSLİK: Eksik olan batarya kanalı eklendi!
             onBatteryReceived = { level ->
                 _batteryLevel.value = level
             }
@@ -187,7 +186,7 @@ class PostureService : Service(){
                         )
                     }
 
-                    // TODO: Titreşim tetiklenecek
+                    // TODO: Titreşim vs eklenirse buradan eklenebilir
                 }
             }
         } else {
@@ -225,7 +224,6 @@ class PostureService : Service(){
     private fun resetLogicState() {
         _currentPitch.value = 0f
         _slouchProgress.value = 0f
-        // MÜHENDİSLİK: Bağlantı kopunca bataryayı da belirsiz (-1) yap!
         _batteryLevel.value = -1
         isCheckingSlouch = false
         isAlertActive = false
@@ -258,7 +256,7 @@ class PostureService : Service(){
         )
 
         val contentText = if (slouchCount > 0) {
-            "$slouchCount kez kambur durdunuz!"
+            "$slouchCount kez kambur durdun!"
         } else {
             "Hayata karşı oldukça dik duruyorsun :D"
         }
