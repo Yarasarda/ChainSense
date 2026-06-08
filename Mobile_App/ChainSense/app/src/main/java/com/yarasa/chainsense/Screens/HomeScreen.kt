@@ -6,7 +6,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -31,10 +33,14 @@ fun HomeScreen(viewModel: MainViewModel) {
     val slouchCount = viewModel.totalSlouchCount
     val isConnected = viewModel.connectionStatus == MainViewModel.ConnectionStatus.CONNECTED
 
+    // Kaydırma motoru için state eklendi
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(16.dp)
+            .verticalScroll(scrollState), // Kaydırma motoru buraya takıldı
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(
@@ -69,7 +75,8 @@ fun HomeScreen(viewModel: MainViewModel) {
         // 4.Ayarlar Bölümü
         SettingsSection(viewModel = viewModel)
 
-        Spacer(modifier = Modifier.weight(1f))
+        // weight(1f) bombası imha edildi, yerine butonu itecek sabit boşluk eklendi
+        Spacer(modifier = Modifier.height(32.dp))
 
         // 5.Kalibrasyon Butonu
         Button(
@@ -78,8 +85,11 @@ fun HomeScreen(viewModel: MainViewModel) {
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text(text = "Duruşu Sıfırla", fontWeight = FontWeight.Bold)
+            Text(text = "Kalibre Et", fontWeight = FontWeight.Bold)
         }
+
+        // Listenin en altına nefes payı eklendi ki buton en alta yapışmasın
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
